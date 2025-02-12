@@ -1,0 +1,206 @@
+import SwiftUI
+
+// 📌 Модель карточки (Card)
+struct Card: Identifiable, Codable, Equatable {
+    let id: UUID
+    let title: String
+    let content: String
+    let imageName: String
+    init(id: UUID = UUID(), title: String, content: String, imageName: String) {
+        self.id = id
+        self.title = title
+        self.content = content
+        self.imageName = imageName
+    }
+}
+
+// 📌 Модель курса валют
+struct ExchangeRateResponse: Codable {
+    let conversion_rates: [String: Double]
+}
+
+// 📌 ViewModel для загрузки карточек и курса
+class CardViewModel: ObservableObject {
+    @Published var cards: [Card] = []
+    @Published var euroToHufRate: Double? = nil
+
+    init() {
+        self.cards = loadCards()
+        fetchExchangeRates()
+    }
+
+    // 📌 Получение курса EUR → HUF
+    func fetchExchangeRates() {
+        guard let url = URL(string: "https://v6.exchangerate-api.com/v6/e68a27854c27f7174870f216/latest/EUR") else {
+            print("❌ Ошибка: Неверный URL")
+            return
+        }
+
+        let task = URLSession.shared.dataTask(with: url) { data, _, error in
+            guard let data = data, error == nil else {
+                print("❌ Ошибка сети: \(error?.localizedDescription ?? "Неизвестная ошибка")")
+                return
+            }
+
+            do {
+                let decodedData = try JSONDecoder().decode(ExchangeRateResponse.self, from: data)
+                DispatchQueue.main.async {
+                    self.euroToHufRate = decodedData.conversion_rates["HUF"]
+                }
+            } catch {
+                print("❌ Ошибка декодирования JSON: \(error)")
+            }
+        }
+        task.resume()
+    }
+}
+
+// 📌 Главное окно с карточками, текстом и курсом EUR → HUF
+struct ContentView: View {
+    @StateObject private var viewModel = CardViewModel()
+    let columns = [GridItem(.adaptive(minimum: 150), spacing: 20)]
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // 📌 Курс валют EUR → HUF
+                    VStack {
+                        if let euroToHufRate = viewModel.euroToHufRate {
+                            Text("Exchange Rate: 1 EUR = \(euroToHufRate, specifier: "%.2f") HUF")
+                                .font(.title2)
+                                .bold()
+                                .foregroundColor(.black)
+                        } else {
+                            Text("Loading exchange rate EUR → HUF...")
+                                .foregroundColor(.gray)
+                                .font(.body)
+                        }
+                    }
+                    .padding(.top, 10)
+
+                    Text("Information for Guides")
+                        .font(.largeTitle)
+                        .bold()
+                        .foregroundColor(.primary)
+                        .padding(.top)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("""
+                        This short book was written for the guides of Segway tours, and it contains all the information you need about buildings and monuments during the stops of our tours.
+                        
+                        Some stops need some background explanation to clarify a few things about Hungary’s unique history.
+                        """)
+                        Text("""
+                        - **Regular History** will be marked with a **#** sign.
+                        - **Segway stop History** will be marked with a **•** sign.
+                        """)
+                        .font(.headline)
+                        Text("""
+                        The reason why you should know all this is that some tourists might ask more questions about the past of the city and the country. We really hope this guide is understandable and clear.
+                        
+                        If you have further questions, you can ask the Manager or more experienced colleagues.
+                        """)
+                    }
+                    .font(.body)
+                    .foregroundColor(.primary)
+                    .padding()
+                    .background(Color(UIColor.systemGray6))
+                    .clipShape(RoundedRectangle(cornerRadius: 15))
+                    .padding(.horizontal)
+
+                    LazyVGrid(columns: columns, spacing: 20) {
+                        ForEach(viewModel.cards) { card in
+                            NavigationLink(destination: CardDetailView(card: card)) {
+                                CardView(card: card)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                    .padding()
+
+                    Text("Written by Ernő Gáspár")
+                        .font(.footnote)
+                        .foregroundColor(.gray)
+                        .padding(.bottom, 20)
+                }
+            }
+        }
+    }
+}
+
+// 📌 Вид карточки
+struct CardView: View {
+    let card: Card
+    var body: some View {
+        VStack {
+            Image(card.imageName)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 150, height: 150)
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+                .shadow(radius: 5)
+            Text(card.title)
+                .font(.headline)
+                .foregroundColor(.primary)
+                .multilineTextAlignment(.center)
+                .frame(width: 150, height: 40)
+        }
+        .contentShape(Rectangle())
+    }
+}
+
+// 📌 Детальный экран карточки
+struct CardDetailView: View {
+    let card: Card
+    var body: some View {
+        VStack {
+            ScrollView {
+                VStack {
+                    Image(card.imageName)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .cornerRadius(15)
+                        .padding()
+                    Text(card.content)
+                        .font(.body)
+                        .foregroundColor(.primary)
+                        .padding()
+                    Spacer()
+                }
+            }
+            .navigationTitle(card.title)
+            .navigationBarBackButtonHidden(false)
+            Text("Written by Ernő Gáspár")
+                .font(.footnote)
+                .foregroundColor(.gray)
+                .padding(.bottom, 20)
+        }
+    }
+}
+
+// 📌 Функция загрузки карточек из файла `cards.json`
+func loadCards() -> [Card] {
+    guard let url = Bundle.main.url(forResource: "cards", withExtension: "json") else {
+        print("❌ Файл `cards.json` не найден!")
+        return []
+    }
+    do {
+        let data = try Data(contentsOf: url)
+        let decodedCards = try JSONDecoder().decode([Card].self, from: data)
+        return decodedCards
+    } catch {
+        print("❌ Ошибка декодирования JSON: \(error)")
+        return []
+    }
+}
+
+// 📌 Запуск приложения
+@main
+struct GuideApp: App {
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+        }
+    }
+}
