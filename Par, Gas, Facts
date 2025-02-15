@@ -165,6 +165,8 @@ struct CardView: View {
     }
 }
 
+import SwiftUI
+
 // 📌 Детальный экран карточки (с фото внутри текста)
 struct CardDetailView: View {
     let card: Card
@@ -194,10 +196,18 @@ struct CardDetailView: View {
                                 .font(.caption)
                         }
                     } else {
-                        Text(section)
-                            .font(.body)
-                            .foregroundColor(.primary)
-                            .padding(.vertical, 5)
+                        // 📌 Поддержка Markdown для текста
+                        if let attributedString = try? AttributedString(markdown: section) {
+                            Text(attributedString)
+                                .font(.body)
+                                .foregroundColor(.primary)
+                                .padding(.vertical, 5)
+                        } else {
+                            Text(section)
+                                .font(.body)
+                                .foregroundColor(.primary)
+                                .padding(.vertical, 5)
+                        }
                     }
                 }
             }
