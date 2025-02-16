@@ -134,6 +134,20 @@ struct ContentView: View {
                     }
                     .padding()
 
+                    // 📌 Блок с соцсетями
+                    VStack(spacing: 10) {
+                        Text("Our social media!")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+
+                        HStack(spacing: 20) {
+                            SocialMediaButton(iconName: "instagram", url: "https://www.instagram.com/@segwaybp")
+                            SocialMediaButton(iconName: "youtube", url: "https://www.youtube.com/@segwaybp-budapest")
+                            SocialMediaButton(iconName: "tiktok", url: "https://www.tiktok.com/@segwaybp")
+                        }
+                    }
+                    .padding(.top, 20)
+                    
                     Text("Written by Ernő Gáspár")
                         .font(.footnote)
                         .foregroundColor(.gray)
@@ -212,8 +226,34 @@ struct CardDetailView: View {
                 }
             }
             .padding()
+            
         }
         .navigationTitle(card.title)
+    }
+}
+
+// 📌 Кнопка соцсетей
+struct SocialMediaButton: View {
+    let iconName: String
+    let url: String
+
+    var body: some View {
+        Button(action: {
+            openURL(url)
+        }) {
+            Image(iconName)
+                .resizable()
+                .frame(width: 40, height: 40)
+                .clipShape(Circle())
+                .shadow(radius: 5)
+        }
+    }
+}
+
+// 📌 Функция открытия ссылки
+func openURL(_ urlString: String) {
+    if let url = URL(string: urlString) {
+        UIApplication.shared.open(url)
     }
 }
 
