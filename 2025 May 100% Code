@@ -1,0 +1,918 @@
+import SwiftUI
+import UIKit
+import CoreMotion
+
+struct AnimatedGradientBackground: View {
+    @State private var animate = false
+
+    // Мягкие «пастельные» цвета
+       private let gradientColors = [
+           Color(red: 0.90, green: 0.95, blue: 1.00),  // почти бело-голубой
+           Color(red: 0.80, green: 0.88, blue: 0.96),  // светло-синий
+           Color(red: 0.75, green: 0.85, blue: 0.90),  // нежно-серо-голубой
+           Color(red: 0.70, green: 0.80, blue: 0.85)   // чуть более глубокий
+       ]
+
+       var body: some View {
+           LinearGradient(
+               colors: gradientColors,
+               startPoint: animate ? .topLeading : .bottomTrailing,
+               endPoint: animate ? .bottomTrailing : .topLeading
+           )
+           .ignoresSafeArea()
+           .animation(
+               // длительность 30 секунд, очень плавно, без автопереворота
+               .easeInOut(duration: 30)
+                   .repeatForever(autoreverses: true),
+               value: animate
+           )
+           .onAppear { animate.toggle() }
+       }
+   }
+// 📌 Модель карточки (Card)
+struct Card: Identifiable, Codable, Equatable {
+    let id: UUID
+    let title: String
+    let content: String
+    let imageName: String
+    init(id: UUID = UUID(), title: String, content: String, imageName: String) {
+        self.id = id
+        self.title = title
+        self.content = content
+        self.imageName = imageName
+    }
+}
+
+// 📌 Модель курса валют
+struct ExchangeRateResponse: Codable {
+    let conversion_rates: [String: Double]
+}
+
+// 📌 ViewModel (карточки, курс EUR → HUF)
+class CardViewModel: ObservableObject {
+    @Published var cards: [Card] = []
+    @Published var euroToHufRate: Double? = nil
+
+    init() {
+        self.cards = loadCards()
+        fetchExchangeRates()
+    }
+
+    // 📌 Получение курса EUR → HUF
+    func fetchExchangeRates() {
+        guard let url = URL(string: "https://v6.exchangerate-api.com/v6/e68a27854c27f7174870f216/latest/EUR") else {
+            print("❌ Ошибка: Неверный URL")
+            return
+        }
+
+        let task = URLSession.shared.dataTask(with: url) { data, _, error in
+            guard let data = data, error == nil else {
+                print("❌ Ошибка сети: \(error?.localizedDescription ?? "Неизвестная ошибка")")
+                return
+            }
+
+            do {
+                let decodedData = try JSONDecoder().decode(ExchangeRateResponse.self, from: data)
+                DispatchQueue.main.async {
+                    self.euroToHufRate = decodedData.conversion_rates["HUF"]
+                }
+            } catch {
+                print("❌ Ошибка декодирования JSON: \(error)")
+            }
+        }
+        task.resume()
+    }
+}
+
+// 📌 Функция загрузки карточек из `cards.json`
+func loadCards() -> [Card] {
+    guard let url = Bundle.main.url(forResource: "cards", withExtension: "json") else {
+        print("❌ Файл `cards.json` не найден!")
+        return []
+    }
+    do {
+        let data = try Data(contentsOf: url)
+        let decodedCards = try JSONDecoder().decode([Card].self, from: data)
+        return decodedCards
+    } catch {
+        print("❌ Ошибка декодирования JSON: \(error)")
+        return []
+    }
+}
+
+// ✅ Курс валют с эффектом акселерометра (исправлено!)
+struct ExchangeRateView: View {
+    @ObservedObject var viewModel: CardViewModel
+    @State private var xOffset: CGFloat = 0
+    @State private var yOffset: CGFloat = 0
+    private let motionManager = CMMotionManager()
+
+    var body: some View {
+        VStack {
+            if let rate = viewModel.euroToHufRate {
+                VStack(alignment: .center, spacing: 8) {
+                    Text("💱 Exchange Rate")
+                        .font(.headline)
+                        .foregroundColor(.black.opacity(0.8))
+                    
+                    Text("1 EUR = \(rate, specifier: "%.2f") HUF")
+                        .font(.largeTitle.bold())
+                        .foregroundColor(.black)
+                        .padding(.vertical, 5)
+                    
+                    Text("Updated live")
+                        .font(.caption)
+                        .foregroundColor(.black.opacity(0.6))
+                }
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color.white)
+                        .shadow(color: .black.opacity(0.2), radius: 10)
+                )
+                .offset(x: xOffset, y: yOffset) // 📌 Реакция на движение
+                .animation(.spring(response: 0.5, dampingFraction: 0.6), value: xOffset)
+                .onAppear {
+                    startMotionUpdates()
+                }
+            } else {
+                Text("Loading exchange rate EUR → HUF...")
+                    .foregroundColor(.gray)
+                    .font(.headline)
+                    .padding()
+            }
+        }
+    }
+    
+    // ✅ Исправленный акселерометр (с правильным центрированием)
+    private func startMotionUpdates() {
+        if motionManager.isAccelerometerAvailable {
+            motionManager.accelerometerUpdateInterval = 0.1
+            motionManager.startAccelerometerUpdates(to: .main) { data, error in
+                guard let data = data, error == nil else { return }
+
+                withAnimation(.easeOut(duration: 0.3)) {
+                    let threshold: CGFloat = 0.05 // 🔹 Убираем резкие движения
+                    
+                    // 📌 Если телефон ЛЕЖИТ (y ≈ 1.0) → Ставим иконку ПО ЦЕНТРУ
+                    if abs(data.acceleration.y) > 0.95 {
+                        xOffset = 0
+                        yOffset = 0
+                    }
+                    // 📌 Если телефон ВЕРТИКАЛЬНО (y ≈ 0.0) → Центрируем вручную
+                    else {
+                        let newX = CGFloat(data.acceleration.y) * 3 // Уменьшаем сдвиг
+                        let newY = CGFloat(data.acceleration.x) * -3 // Инвертируем X
+
+                        // 📌 Делаем плавную настройку
+                        if abs(newX) > threshold { xOffset = newX }
+                        if abs(newY) > threshold { yOffset = newY }
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct FancyTitle: View {
+    @State private var appear = false
+
+    var body: some View {
+        Text("Information for Guides")
+            .font(.title.weight(.semibold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+            .background(Color.black.opacity(0.4))
+            .clipShape(Capsule())
+            .opacity(appear ? 1 : 0)
+            .onAppear {
+                withAnimation(.easeIn(duration: 1.2)) {
+                    appear = true
+            }
+        }
+    }
+}
+
+struct ContentView: View {
+    @StateObject private var viewModel = CardViewModel()
+    @State private var isTextExpanded = false
+    private let columns = [ GridItem(.adaptive(minimum: 150), spacing: 20) ]
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                // 1️⃣ Фон-градиент на весь экран
+                AnimatedGradientBackground()
+                    .ignoresSafeArea()
+                
+                // 2️⃣ Ваш контент поверх
+                ScrollView {
+                    VStack(spacing: 20) {
+                        FancyTitle()
+                            .padding(.top, safeAreaTop())
+
+                        // MARK: Exchange Rate
+                        ExchangeRateView(viewModel: viewModel)
+                            .padding(.top, 10)
+                        
+                        // MARK: Intro-блок
+                        VStack(spacing: 12) {
+                            Button {
+                                withAnimation { isTextExpanded.toggle() }
+                            } label: {
+                                HStack {
+                                    Text("Intro")
+                                    Image(systemName: isTextExpanded ? "chevron.up" : "chevron.down")
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .background(isTextExpanded ? Color.blue : Color.black.opacity(0.8))
+                                .foregroundColor(.white)
+                                .cornerRadius(12)
+                            }
+                            
+                            if isTextExpanded {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("""
+                                    This short book was written for the guides of Segway tours, and it contains all the information you need about buildings and monuments during the stops of our tours.
+                                    """)
+                                    Text("""
+                                    - **Regular History** will be marked with a **#** sign.  
+                                    - **Segway stop History** will be marked with a **•** sign.
+                                    """)
+                                    Text("""
+                                    The reason why you should know all this is that some tourists might ask more questions about the past of the city and the country. We really hope this guide is understandable and clear.
+                                    """)
+                                }
+                                .padding()
+                                .background(Color(.systemBackground))
+                                .cornerRadius(12)
+                                .shadow(radius: 4)
+                                .transition(.opacity.combined(with: .scale))
+                            }
+                        }
+                        
+                        // MARK: Карточки
+                        LazyVGrid(columns: columns, spacing: 20) {
+                            ForEach(viewModel.cards) { card in
+                                NavigationLink(destination: CardDetailView(card: card)) {
+                                    CardView(card: card)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                        .padding()
+                        
+                        // MARK: Соцсети
+                        VStack(spacing: 10) {
+                            Text("Our social media!")
+                                .font(.headline)
+                            HStack(spacing: 20) {
+                                SocialMediaButton(iconName: "instagram", url: "https://www.instagram.com/@segwaybp")
+                                SocialMediaButton(iconName: "youtube", url: "https://www.youtube.com/@segwaybp-budapest")
+                                SocialMediaButton(iconName: "tiktok", url: "https://www.tiktok.com/@segwaybp")
+                            }
+                        }
+                        
+                        // MARK: Quiz
+                        NavigationLink(destination: QuizView()) {
+                            Text("🧠 Take the Quiz")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.purple)
+                                .foregroundColor(.white)
+                                .cornerRadius(12)
+                                .shadow(radius: 4)
+                                .padding(.horizontal)
+                        }
+                        
+                        Text("Written by Ernő Gáspár")
+                            .font(.footnote)
+                            .foregroundColor(.gray)
+                            .padding(.bottom, 20)
+                    }
+                    .padding(.bottom, 20)
+                }
+                .background(Color.clear)
+            }
+                .navigationBarTitleDisplayMode(.inline)
+            }
+            .navigationViewStyle(.stack)
+    }
+    /// Высота верхней safe area (чтобы не лезть под статус-бар)
+    private func safeAreaTop() -> CGFloat {
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let window = windowScene.windows.first else { return 0 }
+            return window.safeAreaInsets.top
+        }
+    }
+    
+    // 📌 Вид карточки
+    struct CardView: View {
+        let card: Card
+        var body: some View {
+            VStack {
+                Image(card.imageName)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 150, height: 150)
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .shadow(radius: 5)
+                Text(card.title)
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                    .multilineTextAlignment(.center)
+                    .frame(width: 150, height: 40)
+            }
+            .contentShape(Rectangle())
+        }
+    }
+    
+    // 📌 Детальный экран карточки (с фото внутри текста)
+    struct CardDetailView: View {
+        let card: Card
+        
+        var body: some View {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 15) {
+                    let sections = parseContent(card.content)
+                    
+                    ForEach(sections.indices, id: \.self) { index in
+                        let section = sections[index]
+                        
+                        if section.starts(with: "[IMAGE:") {
+                            let imageName = section
+                                .replacingOccurrences(of: "[IMAGE:", with: "")
+                                .replacingOccurrences(of: "]", with: "")
+                            
+                            if let uiImage = UIImage(named: imageName) {
+                                Image(uiImage: uiImage)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .cornerRadius(15)
+                                    .padding(.vertical, 10)
+                            } else {
+                                Text("⚠️ Image '\(imageName)' not found!")
+                                    .foregroundColor(.red)
+                                    .font(.caption)
+                            }
+                        } else {
+                            // 📌 Поддержка Markdown для текста
+                            if let attributedString = try? AttributedString(markdown: section) {
+                                Text(attributedString)
+                                    .font(.body)
+                                    .foregroundColor(.primary)
+                                    .padding(.vertical, 5)
+                            } else {
+                                Text(section)
+                                    .font(.body)
+                                    .foregroundColor(.primary)
+                                    .padding(.vertical, 5)
+                            }
+                        }
+                    }
+                }
+                .padding()
+                
+            }
+            .navigationTitle(card.title)
+        }
+    }
+    // 📌 Экран квиза
+    struct QuizView: View {
+        @Environment(\.presentationMode) var presentationMode
+        
+        @State private var selectedQuestions = quizQuestions.shuffled().prefix(10).map { $0 }
+        @State private var currentQuestionIndex = 0
+        @State private var selectedOptionIndex: Int? = nil
+        @State private var score = 0
+        @State private var showResult = false
+        @State private var showSummary = false
+        
+        var body: some View {
+            VStack(spacing: 20) {
+                if currentQuestionIndex < selectedQuestions.count {
+                    Text("Quiz for Guides")
+                        .font(.largeTitle.bold())
+                    
+                    Text(selectedQuestions[currentQuestionIndex].question)
+                        .font(.title2)
+                        .padding()
+                    
+                    ForEach(0..<selectedQuestions[currentQuestionIndex].options.count, id: \.self) { index in
+                        Button(action: {
+                            if selectedOptionIndex == nil {
+                                selectedOptionIndex = index
+                                checkAnswer(index)
+                            }
+                        }) {
+                            Text(selectedQuestions[currentQuestionIndex].options[index])
+                                .padding()
+                                .frame(maxWidth: .infinity)
+                                .background(buttonColor(for: index))
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                        }
+                        .disabled(selectedOptionIndex != nil)
+                    }
+                    
+                    if selectedOptionIndex != nil {
+                        Button("Next") {
+                            goToNextQuestion()
+                        }
+                        .padding()
+                        .background(Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                    }
+                    
+                } else {
+                    // ✅ Только этот блок должен остаться
+                    Text("🎉 Quiz Completed")
+                        .font(.title)
+                    Text("Your score: \(score) out of \(selectedQuestions.count)")
+                        .font(.headline)
+                    
+                    HStack(spacing: 20) {
+                        Button("🔄 Try Again") {
+                            restartQuiz()
+                        }
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                        
+                        Button("Exit") {
+                            presentationMode.wrappedValue.dismiss()
+                        }
+                        .padding()
+                        .background(Color.red)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                    }
+                }
+            }
+            .padding()
+        }
+        
+        
+        func checkAnswer(_ selected: Int) {
+            if selected == selectedQuestions[currentQuestionIndex].correctAnswerIndex {
+                score += 1
+            }
+        }
+        
+        func goToNextQuestion() {
+            selectedOptionIndex = nil
+            
+            if currentQuestionIndex + 1 < selectedQuestions.count {
+                currentQuestionIndex += 1
+            } else {
+                // Показать результат
+                currentQuestionIndex += 1 // ⬅️ Важно, чтобы выйти за пределы массива и перейти к результату
+            }
+        }
+        
+        func restartQuiz() {
+            selectedQuestions = quizQuestions.shuffled().prefix(10).map { $0 }
+            currentQuestionIndex = 0
+            score = 0
+            selectedOptionIndex = nil
+        }
+        
+        func buttonColor(for index: Int) -> Color {
+            guard let selected = selectedOptionIndex else {
+                return Color.blue.opacity(0.7)
+            }
+            
+            if index == selected {
+                return index == selectedQuestions[currentQuestionIndex].correctAnswerIndex ? .green : .red
+            } else if index == selectedQuestions[currentQuestionIndex].correctAnswerIndex {
+                return .green.opacity(0.6)
+            } else {
+                return Color.blue.opacity(0.5)
+            }
+        }
+    }
+    
+    
+    // 📌 Кнопка соцсетей
+    struct SocialMediaButton: View {
+        let iconName: String
+        let url: String
+        
+        var body: some View {
+            Button(action: {
+                openURL(url)
+            }) {
+                Image(iconName)
+                    .resizable()
+                    .frame(width: 40, height: 40)
+                    .clipShape(Circle())
+                    .shadow(radius: 5)
+            }
+        }
+    }
+    
+    // 📌 Функция открытия ссылки
+    func openURL(_ urlString: String) {
+        if let url = URL(string: urlString) {
+            UIApplication.shared.open(url)
+        }
+    }
+    
+    // 📌 Функция разделения текста (без нумерации)
+    func parseContent(_ content: String) -> [String] {
+        return content.components(separatedBy: "\n\n")
+    }
+    // 📌 Структура вопроса
+    struct QuizQuestion {
+        let question: String
+        let options: [String]
+        let correctAnswerIndex: Int
+    }
+    
+    // 📌 Пример вопросов
+    let quizQuestions: [QuizQuestion] = [
+        // 1. Coronation of Saint Stephen
+        QuizQuestion(
+            question: "When was the first Hungarian king, Saint Stephen, crowned?",
+            options: ["1000 AD", "1010 AD", "995 AD", "1020 AD"],
+            correctAnswerIndex: 0
+        ),
+        
+        // 2. Chain Bridge completion
+        QuizQuestion(
+            question: "In which year was the Chain Bridge (Széchenyi Bridge) completed?",
+            options: ["1849", "1873", "1867", "1900"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 3. Budapest unification
+        QuizQuestion(
+            question: "When were Buda, Pest, and Óbuda unified into Budapest?",
+            options: ["1850", "1873", "1867", "1886"],
+            correctAnswerIndex: 1
+        ),
+        
+        // 4. 1956 Revolution
+        QuizQuestion(
+            question: "What major event occurred in Hungary in 1956?",
+            options: ["Austro-Hungarian Compromise", "Hungarian Revolution", "Founding of Budapest University", "Opening of Parliament"],
+            correctAnswerIndex: 1
+        ),
+        
+        // 5. Matthias Church naming
+        QuizQuestion(
+            question: "Which king gave Matthias Church its name?",
+            options: ["Emperor Franz Joseph", "King Matthias Corvinus", "King Béla IV", "King Stephen I"],
+            correctAnswerIndex: 1
+        ),
+        
+        // 6. Monument built 1895–1902
+        QuizQuestion(
+            question: "Which monument was built between 1895 and 1902 for the Millennium celebrations?",
+            options: ["Matthias Church", "Margaret Bridge", "Fisherman’s Bastion", "Széchenyi Chain Bridge"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 7. Parliament completion year
+        QuizQuestion(
+            question: "In which year was the Hungarian Parliament building completed?",
+            options: ["1920", "1910", "1902", "1896"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 8. Heroes' Square statues
+        QuizQuestion(
+            question: "Heroes' Square features statues of which historic figures?",
+            options: ["Ottoman pashas", "Seven Magyar chieftains", "Famous composers", "Habsburg rulers"],
+            correctAnswerIndex: 1
+        ),
+        
+        // 9. Liberty Statue location
+        QuizQuestion(
+            question: "On which hill does the Liberty Statue in Budapest stand?",
+            options: ["Castle Hill", "Várhegy", "Gellért Hill", "Buda Hill"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 10. Árpád settlement
+        QuizQuestion(
+            question: "In which year did Árpád lead the Hungarian tribes into the Carpathian Basin?",
+            options: ["900", "895", "896", "920"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 11. Aquincum ruins
+        QuizQuestion(
+            question: "What was the name of the Roman settlement at Óbuda?",
+            options: ["Carnuntum", "Aquincum", "Sopianae", "Pannonia"],
+            correctAnswerIndex: 1
+        ),
+        
+        // 12. Language family
+        QuizQuestion(
+            question: "To which language family does Hungarian belong?",
+            options: ["Slavic", "Romance", "Germanic", "Uralic"],
+            correctAnswerIndex: 3
+        ),
+        
+        // 13. Turkish occupation length
+        QuizQuestion(
+            question: "How long did the Ottoman Turks rule over Hungary?",
+            options: ["50 years", "200 years", "150 years", "100 years"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 14. Rákóczi War
+        QuizQuestion(
+            question: "Who led the 1703–1710 war of independence against the Habsburgs?",
+            options: ["Lajos Kossuth", "István Széchenyi", "Ferenc Rákóczi", "Imre Nagy"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 15. Bloody Thursday
+        QuizQuestion(
+            question: "What is remembered as 'Bloody Thursday' in Hungarian history?",
+            options: ["1703 Revolution", "1849 Battle of Buda", "1956 street shootings", "1848 March events"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 16. Soviet flag symbol
+        QuizQuestion(
+            question: "What became a symbol of the 1956 Revolution?",
+            options: ["Chain Bridge", "Cut-out Soviet flag", "St. Stephen's crown", "Holy Right Hand"],
+            correctAnswerIndex: 1
+        ),
+        
+        // 17. St. Stephen’s relic
+        QuizQuestion(
+            question: "Which relic is kept in St. Stephen's Basilica?",
+            options: ["True Cross fragment", "Crown of St. Stephen", "First Hungarian book", "Holy Right Hand"],
+            correctAnswerIndex: 3
+        ),
+        
+        // 18. Parliament height
+        QuizQuestion(
+            question: "How tall is the Hungarian Parliament building?",
+            options: ["80 m", "96 m", "105 m", "100 m"],
+            correctAnswerIndex: 1
+        ),
+        
+        // 19. Funicular
+        QuizQuestion(
+            question: "In which decade was the Buda Castle funicular originally built?",
+            options: ["1880s", "1870s", "1860s", "1890s"],
+            correctAnswerIndex: 1
+        ),
+        
+        // 20. Zero Kilometre Stone
+        QuizQuestion(
+            question: "What does the 0-kilometre stone in Budapest mark?",
+            options: ["Site of first settlement", "Battle site", "Measurement origin for distances", "Start of Royal Parade"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 21. Matthias Church span
+        QuizQuestion(
+            question: "In which century was Matthias Church originally built?",
+            options: ["11th century", "14th century", "12th century", "13th century"],
+            correctAnswerIndex: 3
+        ),
+        
+        // 22. Chain Bridge architects
+        QuizQuestion(
+            question: "Which two brothers designed the Széchenyi Chain Bridge?",
+            options: ["Joseph and Franz Schmidt", "Mark and John Lennon", "William and Adam Clark", "Peter and Paul Fischer"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 23. Gellért’s martyrdom
+        QuizQuestion(
+            question: "How did Bishop Gellért die according to legend?",
+            options: ["Burned at stake", "Drowned in Danube", "Thrown from a hill in a barrel", "Beheaded"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 24. Castle Garden Bazaar style
+        QuizQuestion(
+            question: "What architectural style is the Castle Garden Bazaar?",
+            options: ["Modernist", "Baroque", "Neo-Renaissance", "Gothic"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 25. Buda Castle founder
+        QuizQuestion(
+            question: "Which king is called the 'Second Founder of Hungary' for rebuilding after the Mongol invasion?",
+            options: ["Matthias Corvinus", "Charles Robert", "Stephen I", "Béla IV"],
+            correctAnswerIndex: 3
+        ),
+        
+        // 26. Opera House opening
+        QuizQuestion(
+            question: "When was the Hungarian State Opera House inaugurated?",
+            options: ["1856", "1884", "1900", "1837"],
+            correctAnswerIndex: 1
+        ),
+        
+        // 27. Vajdahunyad Castle
+        QuizQuestion(
+            question: "Vajdahunyad Castle was rebuilt in stone in which year after its wooden version?",
+            options: ["1896", "1920", "1908", "1914"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 28. Heroes' colonnade left
+        QuizQuestion(
+            question: "Which figure appears first in the left colonnade at Heroes' Square?",
+            options: ["Saint László", "Saint Stephen", "Kálmán Könyves", "András II"],
+            correctAnswerIndex: 1
+        ),
+        
+        // 29. Thermal baths count
+        QuizQuestion(
+            question: "Which city park in Budapest houses the Széchenyi Thermal Bath?",
+            options: ["Gellért Hill Park", "Margaret Island", "City Centre Park", "Városliget"],
+            correctAnswerIndex: 3
+        ),
+        
+        // 30. Lángos topping
+        QuizQuestion(
+            question: "Which toppings are traditional on Hungarian lángos?",
+            options: ["Tomato sauce and basil", "Chocolate and sugar", "Jam and cream", "Garlic oil, sour cream, cheese"],
+            correctAnswerIndex: 3
+        ),
+        
+        // 31. Goulash origin
+        QuizQuestion(
+            question: "What main spice gives Hungarian goulash its flavor?",
+            options: ["Cumin", "Turmeric", "Saffron", "Paprika"],
+            correctAnswerIndex: 3
+        ),
+        
+        // 32. Chimney cake origin
+        QuizQuestion(
+            question: "What is another name for Kürtős Kalács?",
+            options: ["Hungarian Roll", "Chimney Cake", "Cone Bread", "Tube Pastry"],
+            correctAnswerIndex: 1
+        ),
+        
+        // 33. Hungarian alphabet letters
+        QuizQuestion(
+            question: "How many letters are in the Hungarian alphabet?",
+            options: ["42", "44", "46", "40"],
+            correctAnswerIndex: 1
+        ),
+        
+        // 34. Danube ranking
+        QuizQuestion(
+            question: "The Danube is Europe's ____ longest river?",
+            options: ["First", "Second", "Third", "Fourth"],
+            correctAnswerIndex: 1
+        ),
+        
+        // 35. Nutrition today
+        QuizQuestion(
+            question: "Which dish is considered Hungary’s national dish?",
+            options: ["Fish Soup", "Lángos", "Stuffed Cabbage", "Goulash Soup"],
+            correctAnswerIndex: 3
+        ),
+        
+        // 36. Ottoman language influence
+        QuizQuestion(
+            question: "Which language family influenced Hungarian during occupation?",
+            options: ["Latin", "German", "Slavic", "Turkic"],
+            correctAnswerIndex: 3
+        ),
+        
+        // 37. 1848 revolution demands
+        QuizQuestion(
+            question: "How many points did Hungarian revolutionaries demand in 1848?",
+            options: ["10", "8", "12", "15"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 38. Soviet withdrawal
+        QuizQuestion(
+            question: "After initial fighting in 1956, Soviet troops briefly withdrew on which date?",
+            options: ["October 23", "November 1", "October 25", "October 30"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 39. Budapest Ghetto establishment
+        QuizQuestion(
+            question: "In which year was the Budapest Ghetto established during WWII?",
+            options: ["1943", "1945", "1944", "1942"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 40. Arrow Cross militia leader
+        QuizQuestion(
+            question: "Who led Hungary as head of the Arrow Cross militia in 1944?",
+            options: ["Miklós Horthy", "János Kádár", "Pál Teleki", "Ferenc Szálasi"],
+            correctAnswerIndex: 3
+        ),
+        
+        // 41. National Theatre first language
+        QuizQuestion(
+            question: "Which was the first Hungarian-language theatre?",
+            options: ["Madách Theatre", "National Opera House", "Vígszínház", "Storytelling Theatre"],
+            correctAnswerIndex: 1
+        ),
+        
+        // 42. Opera Hall chandelier
+        QuizQuestion(
+            question: "Approximately how heavy is the chandelier in the Opera House main hall?",
+            options: ["1500 kg", "3000 kg", "2000 kg", "1000 kg"],
+            correctAnswerIndex: 1
+        ),
+        
+        // 43. Andrássy Avenue length
+        QuizQuestion(
+            question: "How long is Andrássy Avenue?",
+            options: ["2.0 km", "3.0 km", "1.8 km", "2.3 km"],
+            correctAnswerIndex: 3
+        ),
+        
+        // 44. M1 metro opening
+        QuizQuestion(
+            question: "When did the M1 underground line open?",
+            options: ["1910", "1896", "1885", "1900"],
+            correctAnswerIndex: 1
+        ),
+        
+        // 45. Széchenyi Baths location
+        QuizQuestion(
+            question: "Which park houses the Széchenyi Thermal Bath?",
+            options: ["Margaret Island", "City Centre Park", "Váci Street", "City Park (Városliget)"],
+            correctAnswerIndex: 3
+        ),
+        
+        // 46. Heroes' Square colonnade right
+        QuizQuestion(
+            question: "Which figure is last in the right-hand colonnade at Heroes' Square?",
+            options: ["Ferenc Rákóczi", "Imre Thököly", "Lajos Kossuth", "Gábor Bethlen"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 47. House of Terror location
+        QuizQuestion(
+            question: "On which boulevard is the House of Terror Museum located?",
+            options: ["Váci utca", "Andrássy út", "Rákóczi út", "Dohány utca"],
+            correctAnswerIndex: 1
+        ),
+        
+        // 48. Vajdahunyad original material
+        QuizQuestion(
+            question: "What material was the original Vajdahunyad Castle built from in 1896?",
+            options: ["Stone", "Iron", "Wood", "Brick"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 49. Margaret Island dedication
+        QuizQuestion(
+            question: "Margaret Island was named after the daughter of which king?",
+            options: ["Matthias Corvinus", "Charles Robert", "Béla IV", "Stephen I"],
+            correctAnswerIndex: 2
+        ),
+        
+        // 50. QR Code screen
+        QuizQuestion(
+            question: "What feature does the QR Code section in the app provide?",
+            options: ["Historical Documents", "Contact Info", "User Reviews", "Tour Map"],
+            correctAnswerIndex: 2
+        )
+    ]
+    
+    // 📌 Запуск приложения
+    @main
+    struct GuideApp: App {
+        init() {
+            // 1) Навигация прозрачная
+            let navBar = UINavigationBarAppearance()
+            navBar.configureWithTransparentBackground()
+            UINavigationBar.appearance().standardAppearance = navBar
+            UINavigationBar.appearance().scrollEdgeAppearance = navBar
+            
+            // 2) Убираем фон у всех UITableView (ScrollView внутри NavigationView)
+            UITableView.appearance().backgroundColor = .clear
+        }
+        
+        var body: some Scene {
+            WindowGroup {
+                ZStack {
+                    AnimatedGradientBackground()
+                        .ignoresSafeArea()
+                    // вот он — стеклянный слой
+                    Color.clear
+                    .background(.thickMaterial)
+                    .opacity(0.7)             // регулируйте общую прозрачность
+                    .ignoresSafeArea()
+                    ContentView()
+                }
+            }
+        }
+    }
