@@ -233,3 +233,11 @@ PHP NEW 2
   <a href="' . $calendar_link . '" target="_blank" style="display:inline-block; padding:12px 18px; margin:8px 5px; background: linear-gradient(135deg, #00C9FF, #92FE9D); color: white; text-decoration: none; border-radius: 8px; font-weight: bold;">📅 Hozzáadás Naptárhoz</a>
 </div>
 
+
+PHP new 3
+
+<div style="margin-top: 30px; text-align: center;">
+  <a href="https://maps.google.com/?q=Haris+Köz+2,+1052+Budapest" target="_blank" style="display: inline-block; width: 85%; max-width: 300px; margin: 8px auto; padding: 14px; background: linear-gradient(135deg, #FF5F6D, #FFC371); color: white; text-decoration: none; border-radius: 10px; font-weight: bold; font-size: 16px;">📍 Megnyitás Google Térképen</a><br>
+  <a href="' . $calendar_link . '" target="_blank" style="display: inline-block; width: 85%; max-width: 300px; margin: 8px auto; padding: 14px; background: linear-gradient(135deg, #00C9FF, #92FE9D); color: white; text-decoration: none; border-radius: 10px; font-weight: bold; font-size: 16px;">📅 Hozzáadás Naptárhoz</a>
+</div>
+
