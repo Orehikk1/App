@@ -1,0 +1,81 @@
+<div id="booking-area" style="max-width: 500px; margin: auto; font-family: sans-serif;">
+  <form id="barber-booking-form" style="padding: 20px; background: #fff; border-radius: 10px; box-shadow: 0 0 20px rgba(0,0,0,0.1);">
+    <h2 style="text-align: center; margin-bottom: 20px;">Időpontfoglalás</h2>
+
+    <label><strong>Szolgáltatás:</strong></label>
+    <select name="service" required style="width: 100%; padding: 10px; margin-bottom: 15px;">
+      <option value="Hajvágás - 7 000 Ft">Hajvágás – 7 000 Ft</option>
+      <option value="Szakáll - 3 000 Ft">Szakáll – 3 000 Ft</option>
+      <option value="Haj + Szakáll - 10 000 Ft">Haj + Szakáll – 10 000 Ft</option>
+    </select>
+
+    <label><strong>Dátum:</strong></label>
+    <input type="date" name="date" required style="width: 100%; padding: 10px; margin-bottom: 15px;">
+
+    <label><strong>Időpont:</strong></label>
+    <input type="time" name="time" min="10:00" max="21:00" step="900" required style="width: 100%; padding: 10px; margin-bottom: 15px;">
+    <small>Foglalás: 10:00 - 21:00 között</small><br><br>
+
+    <label><strong>Név:</strong></label>
+    <input type="text" name="name" required style="width: 100%; padding: 10px; margin-bottom: 15px;">
+
+    <label><strong>Telefonszám:</strong></label>
+    <input type="tel" name="phone" required style="width: 100%; padding: 10px; margin-bottom: 15px;">
+
+    <label><strong>Email:</strong></label>
+    <input type="email" name="email" required style="width: 100%; padding: 10px; margin-bottom: 20px;">
+
+    <button type="submit" style="width: 100%; padding: 12px; background-color: #000; color: #fff; border: none; border-radius: 6px; font-weight: bold; font-size: 16px;">Foglalás elküldése</button>
+  </form>
+
+  <div id="thank-you-message" style="display:none; text-align:center; padding:20px;">
+    <h2 style="color: green;">🎉 Köszönjük a foglalást!</h2>
+    <canvas id="fireworks-canvas" style="width:100%; height:200px;"></canvas>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+<script>
+  document.getElementById("barber-booking-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    const form = e.target;
+    const formData = new FormData(form);
+
+    fetch("/wp-content/themes/astra/send-reservation.php", {
+      method: "POST",
+      body: formData
+    })
+    .then(res => res.text())
+    .then(data => {
+      if (data.trim() === "OK") {
+        form.style.display = "none";
+        document.getElementById("thank-you-message").style.display = "block";
+        launchConfetti();
+      } else {
+        alert("Hiba: " + data);
+      }
+    })
+    .catch(err => alert("Hiba történt. Próbáld újra."));
+  });
+
+  function launchConfetti() {
+    const duration = 2 * 1000;
+    const animationEnd = Date.now() + duration;
+    const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 1000 };
+
+    const interval = setInterval(function () {
+      const timeLeft = animationEnd - Date.now();
+      if (timeLeft <= 0) {
+        return clearInterval(interval);
+      }
+      const particleCount = 50 * (timeLeft / duration);
+      confetti(Object.assign({}, defaults, {
+        particleCount,
+        origin: {
+          x: Math.random(),
+          y: Math.random() - 0.2
+        }
+      }));
+    }, 250);
+  }
+</script>
