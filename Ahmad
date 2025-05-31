@@ -126,3 +126,99 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
   echo "Érvénytelen kérés.";
 }
 ?>
+
+
+
+PHP NEW
+
+<?php
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+  $service = htmlspecialchars($_POST["service"]);
+  $date = htmlspecialchars($_POST["date"]);
+  $time = htmlspecialchars($_POST["time"]);
+  $name = htmlspecialchars($_POST["name"]);
+  $phone = htmlspecialchars($_POST["phone"]);
+  $email = htmlspecialchars($_POST["email"]);
+
+  // 1. Admin Notification Email (still plain text)
+  $to = "habibibarber11@gmail.com";
+  $subject = "Új időpontfoglalás - BarberHabibi";
+  $message = "Új foglalás érkezett:\n\n";
+  $message .= "Szolgáltatás: $service\n";
+  $message .= "Dátum: $date\n";
+  $message .= "Időpont: $time\n";
+  $message .= "Név: $name\n";
+  $message .= "Telefonszám: $phone\n";
+  $message .= "Email: $email\n";
+  $headers = "From: foglalas@barberhabibi.com\r\n";
+  $headers .= "Reply-To: $email\r\n";
+  $headers .= "Content-Type: text/plain; charset=UTF-8";
+
+  $admin_sent = mail($to, $subject, $message, $headers);
+
+  // 2. Customer Email (HTML format)
+  $customer_subject = "Foglalás visszaigazolása – Barber Habibi";
+  $calendar_link = "https://calendar.google.com/calendar/render?action=TEMPLATE&text=Barber+Habibi+-+$service&dates=" . str_replace("-", "", $date) . "T" . str_replace(":", "", $time) . "00Z/" . str_replace("-", "", $date) . "T" . str_replace(":", "", $time) . "00Z&details=Foglalás:+$service&location=Haris+Köz+2,+1052+Budapest";
+
+  $customer_message = '
+  <html>
+  <head>
+    <style>
+      body { font-family: sans-serif; color: #333; padding: 20px; background: #f9f9f9; }
+      .container { background: #fff; padding: 25px; border-radius: 8px; max-width: 600px; margin: auto; }
+      h2 { color: #000; }
+      .info { margin: 20px 0; }
+      .button {
+        display: inline-block;
+        padding: 10px 16px;
+        background-color: #000;
+        color: #fff !important;
+        text-decoration: none;
+        border-radius: 5px;
+        font-weight: bold;
+        margin-right: 10px;
+      }
+      .footer { font-size: 12px; color: #888; margin-top: 30px; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h2>Kedves ' . htmlspecialchars($name) . '!</h2>
+      <p>Köszönjük a foglalást. Itt vannak a részletek:</p>
+
+      <div class="info">
+        <strong>Szolgáltatás:</strong> ' . $service . '<br>
+        <strong>Dátum:</strong> ' . $date . '<br>
+        <strong>Időpont:</strong> ' . $time . '<br>
+      </div>
+
+      <div class="info">
+        <strong>Helyszín:</strong><br>
+        Haris köz 2, 1052 Budapest
+      </div>
+
+      <a href="https://maps.google.com/?q=Haris+Köz+2,+1052+Budapest" class="button" target="_blank">📍 Megnyitás Google Térképen</a>
+      <a href="' . $calendar_link . '" class="button" target="_blank">📅 Hozzáadás Naptárhoz</a>
+
+      <p style="margin-top: 30px;">Hamarosan találkozunk!<br><strong>Barber Habibi</strong></p>
+
+      <div class="footer">Ez az email automatikusan lett elküldve a foglalás visszaigazolására.</div>
+    </div>
+  </body>
+  </html>';
+
+  $customer_headers = "From: foglalas@barberhabibi.com\r\n";
+  $customer_headers .= "Content-Type: text/html; charset=UTF-8\r\n";
+
+  $client_sent = mail($email, $customer_subject, $customer_message, $customer_headers);
+
+  if ($admin_sent && $client_sent) {
+    echo "OK";
+  } else {
+    echo "Hiba: Az email nem lett elküldve.";
+  }
+} else {
+  echo "Érvénytelen kérés.";
+}
+?>
+
