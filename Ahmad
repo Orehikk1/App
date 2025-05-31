@@ -79,3 +79,50 @@
     }, 250);
   }
 </script>
+
+
+
+PHP
+
+
+<?php
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+  $service = htmlspecialchars($_POST["service"]);
+  $date = htmlspecialchars($_POST["date"]);
+  $time = htmlspecialchars($_POST["time"]);
+  $name = htmlspecialchars($_POST["name"]);
+  $phone = htmlspecialchars($_POST["phone"]);
+  $email = htmlspecialchars($_POST["email"]);
+
+  // Email to you (barbershop)
+  $to = "habibibarber11@gmail.com";
+  $subject = "Új időpontfoglalás - BarberHabibi";
+  $message = "Új foglalás érkezett:\n\n";
+  $message .= "Szolgáltatás: $service\n";
+  $message .= "Dátum: $date\n";
+  $message .= "Időpont: $time\n";
+  $message .= "Név: $name\n";
+  $message .= "Telefonszám: $phone\n";
+  $message .= "Email: $email\n";
+  $headers = "From: foglalas@barberhabibi.com\r\n";
+  $headers .= "Reply-To: $email\r\n";
+  $headers .= "Content-Type: text/plain; charset=UTF-8";
+
+  $admin_sent = mail($to, $subject, $message, $headers);
+
+  // Email to customer
+  $customer_subject = "Foglalás visszaigazolása – Barber Habibi";
+  $customer_message = "Kedves $name!\n\nKöszönjük a foglalást.\n\nRészletek:\nSzolgáltatás: $service\nDátum: $date\nIdőpont: $time\n\nHamarosan találkozunk!\nBarber Habibi";
+  $customer_headers = "From: foglalas@barberhabibi.com\r\nContent-Type: text/plain; charset=UTF-8";
+
+  $client_sent = mail($email, $customer_subject, $customer_message, $customer_headers);
+
+  if ($admin_sent && $client_sent) {
+    echo "OK";
+  } else {
+    echo "Hiba: Az email nem lett elküldve.";
+  }
+} else {
+  echo "Érvénytelen kérés.";
+}
+?>
